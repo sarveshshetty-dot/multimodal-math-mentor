@@ -291,7 +291,31 @@ def process_inputs() -> str:
         </p>
     """, unsafe_allow_html=True)
 
-    input_mode = st.radio("", ["✏️ Text", "🖼️ Image", "🎙️ Audio"], horizontal=True, label_visibility="collapsed")
+    st.radio("", ["✏️ Text", "🖼️ Image", "🎙️ Audio"], horizontal=True, label_visibility="collapsed")
+    
+    # Check for feature availability
+    try:
+        from input_processing.image_ocr import easyocr
+        ocr_available = easyocr is not None
+    except ImportError:
+        ocr_available = False
+        
+    try:
+        from input_processing.speech_to_text import WhisperModel
+        audio_available = WhisperModel is not None
+    except ImportError:
+        audio_available = False
+
+    # Display deployment note if in cloud (approximated by missing heavy deps)
+    if not ocr_available or not audio_available:
+        st.info("☁️ **Streamlit Cloud Demo:** OCR and audio features are disabled due to resource limits. Run locally for full multimodal support.")
+
+    # Filter modes based on availability
+    available_modes = ["✏️ Text"]
+    if ocr_available: available_modes.append("🖼️ Image")
+    if audio_available: available_modes.append("🎙️ Audio")
+    
+    input_mode = st.radio("Select mode", available_modes, horizontal=True, label_visibility="collapsed")
     raw_text = ""
 
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)

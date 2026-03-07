@@ -1,4 +1,7 @@
-import easyocr
+try:
+    import easyocr
+except ImportError:
+    easyocr = None
 import os
 from typing import Optional
 
@@ -7,6 +10,8 @@ _ocr_reader_instance = None
 
 def _get_ocr_reader():
     global _ocr_reader_instance
+    if easyocr is None:
+        return None
     if _ocr_reader_instance is None:
         print("Loading EasyOCR Reader (CPU)... This may take a moment.")
         try:

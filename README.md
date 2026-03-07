@@ -45,9 +45,12 @@ graph TD
     Memory[(SQLite Memory)] <--> |History & Feedback| Router & HITL & Output
 ```
 
-## Setup
+## Streamlit Cloud Demo
 
-The system runs fully offline using open-source models. No API keys are required.
+The online demo runs with lightweight dependencies due to Streamlit Cloud resource limitations. 
+Full OCR and audio features are available when running locally.
+
+## Setup
 
 1.  **Create a virtual environment and activate it**:
     ```powershell

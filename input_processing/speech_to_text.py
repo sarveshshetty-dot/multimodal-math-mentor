@@ -1,4 +1,7 @@
-from faster_whisper import WhisperModel
+try:
+    from faster_whisper import WhisperModel
+except ImportError:
+    WhisperModel = None
 import os
 
 # Module-level singleton so it only loads once per Streamlit session
@@ -6,6 +9,8 @@ _model_instance = None
 
 def _get_model():
     global _model_instance
+    if WhisperModel is None:
+        return None
     if _model_instance is None:
         # tiny model: only ~75MB, fast CPU inference
         _model_instance = WhisperModel("tiny", device="cpu", compute_type="int8")

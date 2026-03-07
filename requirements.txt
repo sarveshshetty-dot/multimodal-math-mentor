@@ -1,11 +1,10 @@
 streamlit
-sentence-transformers
-transformers
-torch
-faiss-cpu
-easyocr
-faster-whisper
 sympy
-sqlite3
 numpy
 pandas
+scikit-learn
+sentence-transformers
+faiss-cpu
+pillow
+LangGraph
+typing-extensions
