@@ -13,9 +13,20 @@ from agents.parser_agent import run_parser_agent
 from agents.router_agent import route_problem
 from agents.solver_agent import run_solver_agent
 from agents.verifier_agent import run_verifier_agent
+from ui.streamlit_ui import render_sidebar
+from agents.parser_agent import run_parser_agent
+from agents.router_agent import route_problem
+from agents.solver_agent import run_solver_agent
+from agents.verifier_agent import run_verifier_agent
 from agents.explainer_agent import run_explainer_agent
 from rag.retriever import retrieve_context
 from memory.memory_store import MemoryStore
+
+# Input Processors
+from input_processing.image_ocr import ImageOCRProcessor, easyocr
+from input_processing.speech_to_text import SpeechProcessor, WhisperModel
+from input_processing.text_input import TextProcessor
+import tempfile
 
 # Define Graph State
 class GraphState(TypedDict):
@@ -116,38 +127,35 @@ def main():
 
     render_sidebar()
 
-    # Hero header
+    # 1. Title (Hero header)
     st.markdown("""
-        <div style='padding: 32px 0 24px 0;'>
+        <div style='padding: 32px 0 10px 0;'>
             <h1 style='margin-bottom: 6px;'>Multimodal Math Mentor</h1>
             <p style='color:#6b7280; font-size:1rem; margin:0 0 20px 0;'>
                 Offline AI · JEE-Level Problem Solver · Multi-Agent Reasoning
             </p>
-            <div style='display:flex; gap:10px; flex-wrap:wrap;'>
-                <span style='background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.3);
-                    color:#a5b4fc; padding:4px 12px; border-radius:20px; font-size:0.75rem; font-weight:500;'>
-                    🤖 TinyLlama-1.1B
-                </span>
-                <span style='background:rgba(192,132,252,0.12); border:1px solid rgba(192,132,252,0.3);
-                    color:#d8b4fe; padding:4px 12px; border-radius:20px; font-size:0.75rem; font-weight:500;'>
-                    📚 RAG · FAISS
-                </span>
-                <span style='background:rgba(244,114,182,0.12); border:1px solid rgba(244,114,182,0.3);
-                    color:#f9a8d4; padding:4px 12px; border-radius:20px; font-size:0.75rem; font-weight:500;'>
-                    🔢 SymPy Solver
-                </span>
-                <span style='background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3);
-                    color:#6ee7b7; padding:4px 12px; border-radius:20px; font-size:0.75rem; font-weight:500;'>
-                    ✅ 100% Offline
-                </span>
-            </div>
         </div>
-        <hr style='border-color:rgba(99,102,241,0.15); margin-bottom:28px;'>
     """, unsafe_allow_html=True)
 
-    input_mode, raw_text = process_inputs()
+    # 2. Streamlit Cloud Info (if applicable)
+    ocr_available = easyocr is not None
+    audio_available = WhisperModel is not None
     
-    # State management: Clear results if input mode changes
+    if not ocr_available or not audio_available:
+        st.info("☁️ **Streamlit Cloud Demo:** OCR and audio features are disabled due to resource limits. Run locally for full multimodal support.")
+
+    st.markdown("<hr style='border-color:rgba(99,102,241,0.15); margin-bottom:28px;'>", unsafe_allow_html=True)
+
+    # 3. Input Mode Selector
+    st.markdown("<p style='color:#6b7280; font-size:0.8rem; letter-spacing:0.08em; text-transform:uppercase; font-weight:600; margin-bottom:8px;'>Select Input Mode</p>", unsafe_allow_html=True)
+    
+    available_modes = ["Text"]
+    if ocr_available: available_modes.append("Image")
+    if audio_available: available_modes.append("Audio")
+    
+    input_mode = st.radio("Select mode", ["Text", "Image", "Audio"], horizontal=True, label_visibility="collapsed")
+    
+    # Mode switching state management
     if "current_input_mode" not in st.session_state:
         st.session_state["current_input_mode"] = input_mode
     
@@ -158,11 +166,68 @@ def main():
         st.session_state["in_hitl"] = False
         st.rerun()
 
-    if st.button("Solve Problem", type="primary", disabled=not raw_text):
-        st.session_state["raw_text"] = raw_text
-        st.session_state["graph_state"] = None
-        st.session_state["in_hitl"] = False
-        
+    # 4. Mode-specific UI
+    raw_text = ""
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+    if input_mode == "Text":
+        user_input = st.text_area(
+            "Enter Math Problem:",
+            height=160,
+            placeholder="e.g. Solve for x: 3x² - 7x + 2 = 0. Show all steps."
+        )
+        if st.button("Solve Problem", type="primary", disabled=not user_input):
+            st.session_state["raw_text"] = TextProcessor.process_text(user_input)
+            st.session_state["graph_state"] = None
+            st.session_state["in_hitl"] = False
+
+    elif input_mode == "Image":
+        if not ocr_available:
+            st.warning("⚠️ Image OCR is disabled on Streamlit Cloud due to resource limits. Run locally to use this feature.")
+        else:
+            uploaded_file = st.file_uploader("Upload Image (Math Problem)", type=["png", "jpg", "jpeg"])
+            if uploaded_file is not None:
+                st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
+                with st.spinner("🔍 Extracting text via OCR..."):
+                    ocr = ImageOCRProcessor()
+                    bytes_data = uploaded_file.getvalue()
+                    extracted = ocr.process_image(bytes_data)
+                    if extracted:
+                        st.success("✅ Text extracted successfully!")
+                        final_text = st.text_area("Review & Edit OCR Output:", value=extracted, height=100)
+                        if st.button("Solve Problem", type="primary"):
+                            st.session_state["raw_text"] = final_text
+                            st.session_state["graph_state"] = None
+                            st.session_state["in_hitl"] = False
+                    else:
+                        st.error("❌ Failed to extract text. Please try a clearer image.")
+
+    elif input_mode == "Audio":
+        if not audio_available:
+            st.warning("⚠️ Audio input is disabled on Streamlit Cloud due to resource limits. Run locally to use this feature.")
+        else:
+            st.markdown("<p style='color:#9ca3af; font-size:0.85rem; margin-bottom:8px;'>🎤 Record your math problem aloud.</p>", unsafe_allow_html=True)
+            audio_recording = st.audio_input("Record your math problem")
+            if audio_recording is not None:
+                st.audio(audio_recording)
+                with st.spinner("🎧 Transcribing audio..."):
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                        tmp.write(audio_recording.getvalue())
+                        tmp_path = tmp.name
+                    speech_proc = SpeechProcessor()
+                    extracted = speech_proc.process_audio(tmp_path)
+                    os.remove(tmp_path)
+                    if extracted:
+                        st.success("✅ Audio transcribed!")
+                        final_text = st.text_area("Review & Edit Transcript:", value=extracted, height=100)
+                        if st.button("Solve Problem", type="primary"):
+                            st.session_state["raw_text"] = final_text
+                            st.session_state["graph_state"] = None
+                            st.session_state["in_hitl"] = False
+                    else:
+                        st.error("❌ Failed to process audio.")
+
+    # 5. Graph Execution & Results
     if "raw_text" in st.session_state and not st.session_state.get("in_hitl", False):
         if st.session_state.get("graph_state") is None:
             # First run
