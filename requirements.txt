@@ -5,6 +5,7 @@ pandas
 scikit-learn
 sentence-transformers
 faiss-cpu
+langchain-community
 pillow
 LangGraph
 typing-extensions
