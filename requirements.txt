@@ -1,0 +1,11 @@
+streamlit
+sentence-transformers
+transformers
+torch
+faiss-cpu
+easyocr
+faster-whisper
+sympy
+sqlite3
+numpy
+pandas
