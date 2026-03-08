@@ -255,7 +255,16 @@ def main():
                 initial_state = {"raw_text": st.session_state["raw_text"]}
                 
                 st.write("1️⃣ Parser Agent: Extracting structured data...")
-                state = app_graph.invoke(initial_state)
+                try:
+                    state = app_graph.invoke(initial_state)
+                except Exception as e:
+                    st.warning("Agent workflow failed in the cloud environment. Using fallback solver.")
+                    from tools.math_solver import solve_math_problem
+                    result = solve_math_problem(st.session_state["raw_text"])
+                    st.success(result)
+                    status.update(label="Fallback Solver Complete", state="complete", expanded=False)
+                    st.session_state["graph_state"] = {"final_explanation": result, "raw_text": st.session_state["raw_text"]}
+                    st.rerun()
                 
                 st.write("2️⃣ Router Agent: Evaluating intent and complexity...")
                 

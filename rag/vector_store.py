@@ -19,9 +19,17 @@ def get_vector_store(persist_directory="data/faiss_index", embeddings=None):
     """
     Loads the FAISS vector store. If embeddings are not provided, it initializes them.
     """
-    if embeddings is None:
-        embeddings = get_embeddings()
-    
-    if os.path.exists(os.path.join(persist_directory, "index.faiss")):
-        return FAISS.load_local(persist_directory, embeddings, allow_dangerous_deserialization=True)
-    return None
+    import streamlit as st
+    try:
+        if embeddings is None:
+            embeddings = get_embeddings()
+        
+        index_path = os.path.join(persist_directory, "index.faiss")
+        if os.path.exists(index_path):
+            return FAISS.load_local(persist_directory, embeddings, allow_dangerous_deserialization=True)
+        else:
+            st.warning(f"FAISS index not found at {index_path}")
+            return None
+    except Exception as e:
+        st.error(f"Error in get_vector_store: {e}")
+        return None

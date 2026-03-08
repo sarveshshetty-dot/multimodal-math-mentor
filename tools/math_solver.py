@@ -42,3 +42,7 @@ class MathSolverTool:
             return str(sp.diff(expr, var))
         except Exception as e:
             return f"Error calculating derivative: {str(e)}"
+
+def solve_math_problem(problem_text: str) -> str:
+    """Convenience function for fallback solving."""
+    return MathSolverTool.solve_equation(problem_text)
