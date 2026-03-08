@@ -33,6 +33,28 @@ class GraphState(TypedDict):
     final_explanation: str
     needs_hitl: bool
 
+# --- Cached Resource Loaders (Lazy Loading) ---
+
+@st.cache_resource
+def get_cached_vector_store():
+    from rag.vector_store import get_vector_store
+    base_dir = os.path.dirname(__file__)
+    persist_dir = os.path.join(base_dir, "data/faiss_index")
+    return get_vector_store(persist_dir)
+
+@st.cache_resource
+def get_cached_speech_processor():
+    return SpeechProcessor()
+
+@st.cache_resource
+def get_cached_ocr_processor():
+    return ImageOCRProcessor()
+
+@st.cache_resource
+def get_cached_llm():
+    from tools.local_llm import LocalLLM
+    return LocalLLM()
+
 # Graph Nodes
 def parser_node(state: GraphState):
     parsed = run_parser_agent(state['raw_text'])
@@ -47,7 +69,10 @@ def router_node(state: GraphState):
 def retrieve_node(state: GraphState):
     topic = state['parsed_problem'].get('topic', '')
     query = f"{topic}: {state['parsed_problem'].get('problem_text', '')}"
-    context = retrieve_context(query)
+    
+    # Lazy load vector store only when needed
+    vectorstore = get_cached_vector_store()
+    context = retrieve_context(query, vectorstore=vectorstore)
     return {"retrieved_context": context}
 
 def solver_node(state: GraphState):
@@ -184,7 +209,7 @@ def main():
             if uploaded_file is not None:
                 st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
                 with st.spinner("🔍 Extracting text via OCR..."):
-                    ocr = ImageOCRProcessor()
+                    ocr = get_cached_ocr_processor()
                     bytes_data = uploaded_file.getvalue()
                     extracted = ocr.process_image(bytes_data)
                     if extracted:
@@ -209,7 +234,7 @@ def main():
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
                         tmp.write(audio_recording.getvalue())
                         tmp_path = tmp.name
-                    speech_proc = SpeechProcessor()
+                    speech_proc = get_cached_speech_processor()
                     extracted = speech_proc.process_audio(tmp_path)
                     os.remove(tmp_path)
                     if extracted:
