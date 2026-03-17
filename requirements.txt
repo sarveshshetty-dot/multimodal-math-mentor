@@ -9,3 +9,4 @@ langchain-community
 pillow
 LangGraph
 typing-extensions
+matplotlib

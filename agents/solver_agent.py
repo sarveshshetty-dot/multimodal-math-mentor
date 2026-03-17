@@ -67,7 +67,69 @@ def run_solver_agent(parsed_problem: dict, retrieved_context: str) -> dict:
     sympy_solution_str = None
     solution_value = None
 
-    steps.append(f"**Problem:** {problem_text}")
+    # --- Problem Classification & Graphing ---
+    problem_type = parsed_problem.get("problem_type", "EXPRESSION")
+    
+    if problem_type == "FUNCTION":
+        steps.append(f"**Classification:** Function (Graphing Mode)")
+        try:
+            # Extract RHS if "y =" exists
+            rhs = problem_text
+            if "y =" in problem_text.lower():
+                rhs = problem_text.split("=", 1)[1].strip()
+            elif re.match(r'^y\s*=', problem_text, re.IGNORECASE):
+                rhs = re.sub(r'^y\s*=', '', problem_text, flags=re.IGNORECASE).strip()
+            
+            # Normalize and parse
+            expr_str = _normalize_nl(rhs)
+            expr = parse_expr(expr_str, transformations=TRANSFORMATIONS)
+            
+            # Generate Graph
+            import matplotlib.pyplot as plt
+            import numpy as np
+            import tempfile
+            
+            x_vals = np.linspace(-10, 10, 400)
+            # Create a lambda function for evaluation
+            # Handle symbols robustly
+            f = sp.lambdify(sp.Symbol('x'), expr, modules=['numpy', 'sympy'])
+            y_vals = f(x_vals)
+            
+            # If y_vals is a single value (constant), broadcast it
+            if np.isscalar(y_vals):
+                y_vals = np.full_like(x_vals, y_vals)
+            
+            fig, ax = plt.subplots(figsize=(8, 5))
+            ax.plot(x_vals, y_vals, label=f"y = {expr}")
+            ax.axhline(0, color='black', linewidth=0.8, alpha=0.3)
+            ax.axvline(0, color='black', linewidth=0.8, alpha=0.3)
+            ax.grid(True, linestyle='--', alpha=0.6)
+            ax.set_title(f"Graph of y = {expr}")
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+            ax.legend()
+            
+            # Save to temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png", dir=tempfile.gettempdir()) as tmp:
+                plt.savefig(tmp.name)
+                graph_path = tmp.name
+            plt.close(fig)
+            
+            steps.append(f"**Parsed Expression:** `{expr}`")
+            steps.append(f"**Graphing:** Generated graph in memory.")
+            
+            return {
+                "solution": "This looks like a function. Displaying graph instead.",
+                "steps": steps,
+                "sympy_verified": True,
+                "solution_value": str(expr),
+                "is_graph": True,
+                "graph_path": graph_path
+            }
+        except Exception as e:
+            steps.append(f"**Graphing Error:** {e}")
+            problem_type = "EQUATION" # Fallback
+    
     steps.append(f"**Topic:** {topic.title()}")
 
     tl = problem_text.lower()

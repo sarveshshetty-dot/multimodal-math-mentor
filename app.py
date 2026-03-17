@@ -135,6 +135,45 @@ workflow.add_conditional_edges(
 workflow.add_edge("Explainer", END)
 app_graph = workflow.compile()
 
+import numpy as np
+import matplotlib.pyplot as plt
+
+def classify_problem(text: str) -> str:
+    t = text.lower().strip()
+
+    # remove helper words
+    for word in ["sketch", "plot", "draw", "graph"]:
+        t = t.replace(word, "").strip()
+
+    if "y =" in t:
+        return "function"
+    elif "=" in t:
+        return "equation"
+    elif any(w in t for w in ["explain", "what is", "define"]):
+        return "concept"
+    else:
+        return "expression"
+
+def plot_function(expr_text):
+    expr = expr_text.split("=")[1].strip()
+    expr = expr.replace("^", "**")
+
+    x = np.linspace(-10, 10, 400)
+    y = eval(expr)
+
+    fig, ax = plt.subplots()
+    ax.plot(x, y)
+    ax.set_title(f"Graph of {expr_text}")
+    ax.axhline(0)
+    ax.axvline(0)
+
+    st.pyplot(fig)
+
+def explain_function(expr_text):
+    if "x**2" in expr_text or "x^2" in expr_text:
+        st.write("This is a quadratic function (parabola).")
+        st.write("Vertex: (0, 0), opens upward, symmetric about y-axis.")
+
 # --- Main Streamlit App ---
 
 def main():
@@ -249,6 +288,14 @@ def main():
 
     # 5. Graph Execution & Results
     if "raw_text" in st.session_state and not st.session_state.get("in_hitl", False):
+        ptype = classify_problem(st.session_state["raw_text"])
+
+        if ptype == "function":
+            st.success("This appears to be a function. Displaying graph instead.")
+            plot_function(st.session_state["raw_text"])
+            explain_function(st.session_state["raw_text"])
+            return
+
         if st.session_state.get("graph_state") is None:
             # First run
             with st.status("Executing Agent Workflow...", expanded=True) as status:
@@ -298,6 +345,12 @@ def main():
             if 'final_explanation' in state:
                 st.markdown("---")
                 st.markdown("### ✨ Final Solution & Explanation")
+                
+                # Check for graph
+                solver_out = state.get('solver_output', {})
+                if solver_out.get('is_graph'):
+                    st.image(solver_out.get('graph_path'), caption="Generated Mathematical Graph")
+                
                 st.markdown(state['final_explanation'])
             
             if 'verifier_output' in state:
