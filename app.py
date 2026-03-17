@@ -2,6 +2,9 @@ import os
 import uuid
 import json
 import streamlit as st
+import sympy as sp
+import numpy as np
+import matplotlib.pyplot as plt
 
 # LangGraph imports
 from langgraph.graph import StateGraph, END
@@ -135,114 +138,98 @@ workflow.add_conditional_edges(
 workflow.add_edge("Explainer", END)
 app_graph = workflow.compile()
 
-import numpy as np
-import matplotlib.pyplot as plt
-import re
-import sympy as sp
+# --- Stable Math Pipeline Functions ---
 
-def clean_input(text: str) -> str:
-    text = text.lower()
-
-    # remove filler words
-    fillers = ["can you", "please", "for me", "plot", "draw", "sketch", "find", "what is"]
-    for f in fillers:
-        text = text.replace(f, "")
-
-    return text.strip()
-
-def classify_problem(text: str) -> str:
-    t = clean_input(text)
-
-    if "derivative" in t:
-        return "derivative"
+def classify_problem(text):
+    t = text.lower()
     if "y =" in t:
         return "function"
-    if "=" in t:
+    elif "derivative" in t:
+        return "derivative"
+    elif "=" in t:
         return "equation"
-    if any(w in t for w in ["explain", "define"]):
+    elif any(w in t for w in ["explain", "what is"]):
         return "concept"
-    return "expression"
-
-def extract_expr(text):
-    text = clean_input(text)
-
-    if "=" in text:
-        expr = text.split("=")[1]
     else:
-        expr = text
-
-    expr = re.sub(r"[^0-9xX\+\-\*/\^\(\)\.\s]", "", expr)
-    expr = expr.replace("^", "**")
-
-    return expr.strip()
-
-def safe_eval(expr, x):
-    allowed = {
-        "x": x,
-        "sin": np.sin,
-        "cos": np.cos,
-        "tan": np.tan,
-        "exp": np.exp,
-        "log": np.log,
-        "sqrt": np.sqrt
-    }
-    return eval(expr, {"__builtins__": {}}, allowed)
-
-def plot_function(text):
-    try:
-        expr = extract_expr(text)
-
-        x = np.linspace(-10, 10, 400)
-        y = safe_eval(expr, x)
-
-        fig, ax = plt.subplots()
-        ax.plot(x, y)
-        ax.axhline(0)
-        ax.axvline(0)
-        ax.set_title(f"Graph of y = {expr}")
-
-        st.pyplot(fig)
-
-    except Exception:
-        st.error("Invalid function format. Example: y = x^2 or y = sin(x)")
+        return "expression"
 
 def solve_equation(text):
     try:
         x = sp.symbols('x')
-        expr = text.replace("^", "**")
+        # Handle implied multiplication if possible, or just standard replace
+        expr = text.replace("^", "**").lower()
+        # Clean basic 'solve' words if any
+        expr = expr.replace("solve", "").strip()
         
-        # Handle cases where user typed LHS = RHS
         if "=" in expr:
-            lhs_str, rhs_str = expr.split("=", 1)
-            lhs = sp.sympify(lhs_str.strip())
-            rhs = sp.sympify(rhs_str.strip())
+            parts = expr.split("=")
+            lhs = sp.sympify(parts[0].strip())
+            rhs = sp.sympify(parts[1].strip())
             eq = sp.Eq(lhs, rhs)
         else:
             eq = sp.sympify(expr)
 
         solutions = sp.solve(eq, x)
-        st.write("Solutions:", solutions)
+        st.success(f"Solutions: {solutions}")
 
-    except:
+    except Exception as e:
         st.error("Could not solve equation")
+
+def simplify_expression(text):
+    try:
+        x = sp.symbols('x')
+        expr = text.replace("^", "**")
+        simplified = sp.simplify(expr)
+        st.success(f"Simplified: {simplified}")
+    except:
+        st.error("Could not simplify expression")
+
+def clean_function_input(text):
+    text = text.lower()
+    for word in ["plot", "draw", "sketch", "please", "can you"]:
+        text = text.replace(word, "")
+    return text.strip()
+
+def plot_function(text):
+    try:
+        clean_text = clean_function_input(text)
+        if "=" in clean_text:
+            expr = clean_text.split("=")[1].strip()
+        else:
+            expr = clean_text
+            
+        expr = expr.replace("^", "**")
+        
+        x = np.linspace(-10, 10, 400)
+        y = eval(expr)
+        
+        fig, ax = plt.subplots()
+        ax.plot(x, y)
+        ax.set_title(f"Graph of y = {expr}")
+        ax.axhline(0)
+        ax.axvline(0)
+        st.pyplot(fig)
+    except Exception as e:
+        st.error("Could not plot function.")
 
 def solve_derivative(text):
     try:
         x = sp.symbols('x')
-        expr = extract_expr(text)
+        expr = text.lower().replace("derivative of", "")
+        expr = expr.replace("^", "**").strip()
+        
         f = sp.sympify(expr)
-
-        derivative = sp.diff(f, x)
-        st.write("Derivative:", derivative)
-
+        d = sp.diff(f, x)
+        st.success(f"Derivative: {d}")
     except:
         st.error("Could not compute derivative")
 
 def explain_concept(text):
-    if "derivative" in text:
-        st.write("A derivative measures how fast something changes.")
+    if "derivative" in text.lower():
+        st.write("A derivative tells how fast something changes.")
     else:
         st.write("This is a conceptual math question.")
+
 
 # --- Main Streamlit App ---
 
@@ -358,27 +345,25 @@ def main():
 
     # 5. Graph Execution & Results
     if "raw_text" in st.session_state and not st.session_state.get("in_hitl", False):
-        try:
-            ptype = classify_problem(st.session_state["raw_text"])
+        user_input = st.session_state["raw_text"]
+        
+        ptype = classify_problem(user_input)
 
-            if ptype == "function":
-                st.success("Detected function. Showing graph.")
-                plot_function(st.session_state["raw_text"])
+        if ptype == "function":
+            st.info("Detected function. Showing graph.")
+            plot_function(user_input)
 
-            elif ptype == "equation":
-                solve_equation(st.session_state["raw_text"])
+        elif ptype == "equation":
+            solve_equation(user_input)
 
-            elif ptype == "derivative":
-                solve_derivative(st.session_state["raw_text"])
+        elif ptype == "derivative":
+            solve_derivative(user_input)
 
-            elif ptype == "concept":
-                explain_concept(st.session_state["raw_text"])
+        elif ptype == "concept":
+            explain_concept(user_input)
 
-            else:
-                st.write("Simplified:", st.session_state["raw_text"])
-                
-        except Exception:
-            st.error("Something went wrong. Please try a simpler input.")
+        else:
+            simplify_expression(user_input)
 
 if __name__ == "__main__":
     main()
