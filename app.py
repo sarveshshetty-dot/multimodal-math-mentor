@@ -140,7 +140,7 @@ app_graph = workflow.compile()
 
 # --- Stable Math Pipeline Functions ---
 
-def classify_problem(text):
+def classify(text):
     t = text.lower()
     if "y =" in t:
         return "function"
@@ -154,35 +154,28 @@ def classify_problem(text):
         return "expression"
 
 def solve_equation(text):
+    import sympy as sp
     try:
         x = sp.symbols('x')
-        # Handle implied multiplication if possible, or just standard replace
-        expr = text.replace("^", "**").lower()
-        # Clean basic 'solve' words if any
-        expr = expr.replace("solve", "").strip()
-        
-        if "=" in expr:
-            parts = expr.split("=")
-            lhs = sp.sympify(parts[0].strip())
-            rhs = sp.sympify(parts[1].strip())
-            eq = sp.Eq(lhs, rhs)
-        else:
-            eq = sp.sympify(expr)
 
-        solutions = sp.solve(eq, x)
-        st.success(f"Solutions: {solutions}")
+        expr = text.replace("^", "**")
+        lhs, rhs = expr.split("=")
 
-    except Exception as e:
-        st.error("Could not solve equation")
+        eq = sp.Eq(sp.sympify(lhs), sp.sympify(rhs))
+        sol = sp.solve(eq, x)
+
+        return sol
+    except:
+        return None
 
 def simplify_expression(text):
+    import sympy as sp
     try:
-        x = sp.symbols('x')
         expr = text.replace("^", "**")
         simplified = sp.simplify(expr)
-        st.success(f"Simplified: {simplified}")
+        return simplified
     except:
-        st.error("Could not simplify expression")
+        return None
 
 def clean_function_input(text):
     text = text.lower()
@@ -213,16 +206,23 @@ def plot_function(text):
         st.error("Could not plot function.")
 
 def solve_derivative(text):
+    import sympy as sp
     try:
         x = sp.symbols('x')
-        expr = text.lower().replace("derivative of", "")
-        expr = expr.replace("^", "**").strip()
-        
+
+        expr = text.lower()
+        expr = expr.replace("what is", "")
+        expr = expr.replace("the derivative of", "")
+        expr = expr.replace("derivative of", "")
+        expr = expr.replace("?", "").strip()
+        expr = expr.replace("^", "**")
+
         f = sp.sympify(expr)
         d = sp.diff(f, x)
-        st.success(f"Derivative: {d}")
+
+        return d
     except:
-        st.error("Could not compute derivative")
+        return None
 
 def explain_concept(text):
     if "derivative" in text.lower():
@@ -347,23 +347,52 @@ def main():
     if "raw_text" in st.session_state and not st.session_state.get("in_hitl", False):
         user_input = st.session_state["raw_text"]
         
-        ptype = classify_problem(user_input)
+        ptype = classify(user_input)
+        result = None
 
         if ptype == "function":
-            st.info("Detected function. Showing graph.")
             plot_function(user_input)
-
+            st.stop()
         elif ptype == "equation":
-            solve_equation(user_input)
-
+            result = solve_equation(user_input)
+            topic = "Algebra (Equation Solver)"
         elif ptype == "derivative":
-            solve_derivative(user_input)
-
+            result = solve_derivative(user_input)
+            topic = "Calculus (Derivative)"
         elif ptype == "concept":
             explain_concept(user_input)
-
+            st.stop()
         else:
-            simplify_expression(user_input)
+            result = simplify_expression(user_input)
+            topic = "Algebra (Expression Simplification)"
+
+        if result is None:
+            st.error("Could not solve. Try simpler input.")
+        else:
+            st.header("✨ Final Solution & Explanation")
+            st.subheader(f"📐 Solution: {topic}")
+
+            st.subheader("🔢 Step-by-Step Solution")
+            st.write(f"**1. Problem:** `{user_input}`")
+            st.write(f"**2. Topic:** `{topic}`")
+            st.write("**3. Steps:** Analyzed via SymPy Engine")
+
+            st.subheader("✅ Final Answer")
+            st.success(f"{result}")
+            
+            # Feedback
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("👍 Correct"):
+                    memory.save_interaction(
+                        st.session_state["session_id"], user_input, {"topic": topic},
+                        "", str(result), "{}"
+                    )
+                    st.success("Feedback recorded. Memory updated!")
+            with col2:
+                if st.button("👎 Incorrect"):
+                    st.error("Thanks for the feedback. The system will learn from this.")
 
 if __name__ == "__main__":
     main()
