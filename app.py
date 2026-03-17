@@ -137,42 +137,112 @@ app_graph = workflow.compile()
 
 import numpy as np
 import matplotlib.pyplot as plt
+import re
+import sympy as sp
+
+def clean_input(text: str) -> str:
+    text = text.lower()
+
+    # remove filler words
+    fillers = ["can you", "please", "for me", "plot", "draw", "sketch", "find", "what is"]
+    for f in fillers:
+        text = text.replace(f, "")
+
+    return text.strip()
 
 def classify_problem(text: str) -> str:
-    t = text.lower().strip()
+    t = clean_input(text)
 
-    # remove helper words
-    for word in ["sketch", "plot", "draw", "graph"]:
-        t = t.replace(word, "").strip()
-
+    if "derivative" in t:
+        return "derivative"
     if "y =" in t:
         return "function"
-    elif "=" in t:
+    if "=" in t:
         return "equation"
-    elif any(w in t for w in ["explain", "what is", "define"]):
+    if any(w in t for w in ["explain", "define"]):
         return "concept"
-    else:
-        return "expression"
+    return "expression"
 
-def plot_function(expr_text):
-    expr = expr_text.split("=")[1].strip()
+def extract_expr(text):
+    text = clean_input(text)
+
+    if "=" in text:
+        expr = text.split("=")[1]
+    else:
+        expr = text
+
+    expr = re.sub(r"[^0-9xX\+\-\*/\^\(\)\.\s]", "", expr)
     expr = expr.replace("^", "**")
 
-    x = np.linspace(-10, 10, 400)
-    y = eval(expr)
+    return expr.strip()
 
-    fig, ax = plt.subplots()
-    ax.plot(x, y)
-    ax.set_title(f"Graph of {expr_text}")
-    ax.axhline(0)
-    ax.axvline(0)
+def safe_eval(expr, x):
+    allowed = {
+        "x": x,
+        "sin": np.sin,
+        "cos": np.cos,
+        "tan": np.tan,
+        "exp": np.exp,
+        "log": np.log,
+        "sqrt": np.sqrt
+    }
+    return eval(expr, {"__builtins__": {}}, allowed)
 
-    st.pyplot(fig)
+def plot_function(text):
+    try:
+        expr = extract_expr(text)
 
-def explain_function(expr_text):
-    if "x**2" in expr_text or "x^2" in expr_text:
-        st.write("This is a quadratic function (parabola).")
-        st.write("Vertex: (0, 0), opens upward, symmetric about y-axis.")
+        x = np.linspace(-10, 10, 400)
+        y = safe_eval(expr, x)
+
+        fig, ax = plt.subplots()
+        ax.plot(x, y)
+        ax.axhline(0)
+        ax.axvline(0)
+        ax.set_title(f"Graph of y = {expr}")
+
+        st.pyplot(fig)
+
+    except Exception:
+        st.error("Invalid function format. Example: y = x^2 or y = sin(x)")
+
+def solve_equation(text):
+    try:
+        x = sp.symbols('x')
+        expr = text.replace("^", "**")
+        
+        # Handle cases where user typed LHS = RHS
+        if "=" in expr:
+            lhs_str, rhs_str = expr.split("=", 1)
+            lhs = sp.sympify(lhs_str.strip())
+            rhs = sp.sympify(rhs_str.strip())
+            eq = sp.Eq(lhs, rhs)
+        else:
+            eq = sp.sympify(expr)
+
+        solutions = sp.solve(eq, x)
+        st.write("Solutions:", solutions)
+
+    except:
+        st.error("Could not solve equation")
+
+def solve_derivative(text):
+    try:
+        x = sp.symbols('x')
+        expr = extract_expr(text)
+        f = sp.sympify(expr)
+
+        derivative = sp.diff(f, x)
+        st.write("Derivative:", derivative)
+
+    except:
+        st.error("Could not compute derivative")
+
+def explain_concept(text):
+    if "derivative" in text:
+        st.write("A derivative measures how fast something changes.")
+    else:
+        st.write("This is a conceptual math question.")
 
 # --- Main Streamlit App ---
 
@@ -288,129 +358,27 @@ def main():
 
     # 5. Graph Execution & Results
     if "raw_text" in st.session_state and not st.session_state.get("in_hitl", False):
-        ptype = classify_problem(st.session_state["raw_text"])
+        try:
+            ptype = classify_problem(st.session_state["raw_text"])
 
-        if ptype == "function":
-            st.success("This appears to be a function. Displaying graph instead.")
-            plot_function(st.session_state["raw_text"])
-            explain_function(st.session_state["raw_text"])
-            return
+            if ptype == "function":
+                st.success("Detected function. Showing graph.")
+                plot_function(st.session_state["raw_text"])
 
-        if st.session_state.get("graph_state") is None:
-            # First run
-            with st.status("Executing Agent Workflow...", expanded=True) as status:
-                initial_state = {"raw_text": st.session_state["raw_text"]}
-                
-                st.write("1️⃣ Parser Agent: Extracting structured data...")
-                try:
-                    state = app_graph.invoke(initial_state)
-                except Exception as e:
-                    st.warning("Agent workflow failed in the cloud environment. Using fallback solver.")
-                    from tools.math_solver import solve_math_problem
-                    result = solve_math_problem(st.session_state["raw_text"])
-                    st.success(result)
-                    status.update(label="Fallback Solver Complete", state="complete", expanded=False)
-                    st.session_state["graph_state"] = {"final_explanation": result, "raw_text": st.session_state["raw_text"]}
-                    st.rerun()
-                
-                st.write("2️⃣ Router Agent: Evaluating intent and complexity...")
-                
-                if state.get("needs_hitl", False):
-                    st.warning("⚠️ Intent unclear. Clarification required.")
-                else:
-                    st.write("3️⃣ RAG Retriever: Fetching mathematical context...")
-                    st.json(state.get('parsed_problem', {}))
-                    
-                    if 'solver_output' in state:
-                        st.write("4️⃣ Solver Agent: Reasoning and SymPy evaluation...")
-                        with st.expander("Solver Steps"):
-                            for step in state['solver_output'].get('steps', []):
-                                st.markdown(f"- {step}")
-                                
-                    if 'verifier_output' in state:
-                        st.write("5️⃣ Verifier Agent: Checking correctness...")
-                        st.json(state['verifier_output'].get('verification', {}))
-                
-                status.update(label="Graph Execution Complete", state="complete", expanded=False)
-                
-                st.session_state["graph_state"] = state
-                
-        state = st.session_state["graph_state"]
-        
-        if state.get("needs_hitl", False):
-            st.session_state["in_hitl"] = True
-            st.rerun()
-        else:
-            # Metrics and Final results
-            if 'final_explanation' in state:
-                st.markdown("---")
-                st.markdown("### ✨ Final Solution & Explanation")
-                
-                # Check for graph
-                solver_out = state.get('solver_output', {})
-                if solver_out.get('is_graph'):
-                    st.image(solver_out.get('graph_path'), caption="Generated Mathematical Graph")
-                
-                st.markdown(state['final_explanation'])
-            
-            if 'verifier_output' in state:
-                conf = state['verifier_output'].get('confidence_data', {}).get('confidence', 0)
-                st.metric("Confidence Score", f"{conf}/100")
-            
-            # Feedback
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("👍 Correct"):
-                    memory.save_interaction(
-                        st.session_state["session_id"], state['raw_text'], state['parsed_problem'],
-                        state['retrieved_context'], state['final_explanation'], json.dumps(state['verifier_output'])
-                    )
-                    # We can't immediately update_feedback without insert ID, so let's simplify:
-                    st.success("Feedback recorded. Memory updated!")
-            with col2:
-                if st.button("👎 Incorrect"):
-                    st.error("Thanks for the feedback. The system will learn from this.")
-                    
-    elif st.session_state.get("in_hitl", False):
-        state = st.session_state["graph_state"]
-        
-        if state.get("solver_output"):
-            st.warning("⚠️ Human-In-The-Loop (HITL): High uncertainty in the mathematical solution.")
-            st.markdown("### Proposed Solution")
-            st.markdown(state['solver_output'].get("solution", ""))
-            
-            st.markdown("### Verifier Errors")
-            for err in state['verifier_output'].get("verification", {}).get("errors_found", []):
-                st.error(err)
-            
-            action = st.radio("HITL Action", ["Approve & Generate Explanation", "Reject & Edit Solution"])
-            if action == "Reject & Edit Solution":
-                edited_sol = st.text_area("Edit Solution", value=state['solver_output'].get("solution", ""))
-        else:
-            st.info("ℹ️ Not a math problem")
-            st.markdown("Please clarify or re-enter a valid mathematical equation or expression below.")
-            edited_input = st.text_area("Re-enter problem:", value=state['raw_text'])
-            action = "Reject & Edit Solution" # Re-use same logic to restart
-            edited_sol = None # We'll handle this by updating raw_text
-            
-        if st.button("Confirm & Proceed"):
-            if state.get("solver_output"):
-                if action == "Reject & Edit Solution":
-                    state['solver_output']['solution'] = edited_sol
-                
-                state['needs_hitl'] = False
-                state['final_explanation'] = run_explainer_agent(
-                    state['parsed_problem'], state['solver_output'], state['verifier_output']
-                )
-                st.session_state["graph_state"] = state
-                st.session_state["in_hitl"] = False
-                st.rerun()
+            elif ptype == "equation":
+                solve_equation(st.session_state["raw_text"])
+
+            elif ptype == "derivative":
+                solve_derivative(st.session_state["raw_text"])
+
+            elif ptype == "concept":
+                explain_concept(st.session_state["raw_text"])
+
             else:
-                # Coming from Router HITL (no solver output)
-                st.session_state["raw_text"] = edited_input
-                st.session_state["graph_state"] = None
-                st.session_state["in_hitl"] = False
-                st.rerun()
+                st.write("Simplified:", st.session_state["raw_text"])
+                
+        except Exception:
+            st.error("Something went wrong. Please try a simpler input.")
 
 if __name__ == "__main__":
     main()
